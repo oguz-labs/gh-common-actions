@@ -1,6 +1,34 @@
 # gh-common-actions
 Github workflows/actions library
 
+## run-robotframework.yml
+
+Reusable workflow that runs a target's Robot Framework suite following the
+`bootstrap -> lint -> check -> run` Makefile convention (see
+`oguz-labs/old-scout/tests/Makefile`), wires the `allure_robotframework`
+listener into the run automatically, and uploads both the native RF
+artifacts (`output.xml`/`log.html`/`report.html`) and the generated
+`allure-results` directory as build artifacts. It does not publish to the
+shared Allure server — chain its `allure_results_dir` output into
+`publish-allure.yml` from the calling workflow.
+
+```yaml
+jobs:
+  test:
+    uses: oguz-labs/gh-common-actions/.github/workflows/run-robotframework.yml@main
+    with:
+      working_directory: tests
+      sut_url: https://legacy-scout.internal
+
+  publish:
+    needs: test
+    uses: oguz-labs/gh-common-actions/.github/workflows/publish-allure.yml@main
+    with:
+      project_name: legacy-scout
+      report_source_type: robotframework
+      results_dir: ${{ needs.test.outputs.allure_results_dir }}
+```
+
 ## publish-allure.yml
 
 Reusable workflow that pushes an already-generated Allure results directory

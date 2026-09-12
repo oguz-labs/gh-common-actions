@@ -1,0 +1,105 @@
+name: Run Robot Framework suite
+
+# Reusable workflow: runs a target's Robot Framework suite against its Makefile
+# conventions (bootstrap -> lint -> check -> run) and uploads both the native
+# RF artifacts and a native Allure results directory as build artifacts.
+#
+# It does NOT publish to the shared Allure server — chain this workflow's
+# allure_results_dir output into publish-allure.yml from the calling
+# workflow, so a repo that only wants local artifacts isn't forced to talk
+# to the shared server.
+#
+# Assumes the target's own Makefile exposes `bootstrap`, `lint`, `check`,
+# `run` targets and honours a `SUT_URL` env var and `ROBOT_OPTIONS` passthrough
+# to the `robot` invocation — see oguz-labs/old-scout/tests/Makefile for the
+# reference shape this was modeled on.
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Runner label to execute on. Default self-hosted since the SUT is
+          typically only reachable from inside the org network/cluster.
+        type: string
+        default: self-hosted
+      working_directory:
+        description: Directory (relative to repo root) containing the target's test Makefile.
+        type: string
+        default: tests
+      python_version:
+        description: >-
+          Pinned by default to 3.13 — robotframework-browser/grpcio have a
+          known incompatibility with 3.14 as of this writing.
+        type: string
+        default: "3.13"
+      sut_url:
+        description: Base URL of the system under test. Passed through as SUT_URL; omit to use the target's own Makefile default.
+        type: string
+        default: ""
+      allure_results_dir:
+        description: Directory (relative to working_directory) the Allure listener writes native results into.
+        type: string
+        default: allure-results
+      run_lint:
+        description: Run `make lint` before `make check`/`make run`.
+        type: boolean
+        default: true
+      run_check:
+        description: Run `make check` (static intent trace) before `make run`.
+        type: boolean
+        default: true
+    outputs:
+      allure_results_dir:
+        description: Path to the generated Allure results directory, for chaining into publish-allure.yml.
+        value: ${{ jobs.test.outputs.allure_results_dir }}
+
+jobs:
+  test:
+    runs-on: ${{ inputs.runs_on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    env:
+      SUT_URL: ${{ inputs.sut_url }}
+      ALLURE_RESULTS_DIR: ${{ inputs.allure_results_dir }}
+    outputs:
+      allure_results_dir: ${{ inputs.working_directory }}/${{ inputs.allure_results_dir }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: Lint
+        if: ${{ inputs.run_lint }}
+        run: make lint
+
+      - name: Static intent check
+        if: ${{ inputs.run_check }}
+        run: make check
+
+      - name: Run suite with Allure listener
+        run: |
+          [ -n "$SUT_URL" ] && export SUT_URL
+          export ROBOT_OPTIONS="--listener allure_robotframework:$PWD/$ALLURE_RESULTS_DIR"
+          make run
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: robot-results
+          path: |
+            ${{ inputs.working_directory }}/results/output.xml
+            ${{ inputs.working_directory }}/results/log.html
+            ${{ inputs.working_directory }}/results/report.html
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results
+          path: ${{ inputs.working_directory }}/${{ inputs.allure_results_dir }}
