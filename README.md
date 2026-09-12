@@ -18,6 +18,11 @@ only effective if `test_command`'s own tooling reads that env var) and get
 the resulting `allure-results` directory uploaded too, for chaining into
 `publish-allure.yml`.
 
+Jobs never share a filesystem in GitHub Actions, so chaining into
+`publish-allure.yml` goes through an actual artifact — `enable_allure`
+uploads one named `allure-results`, and `publish-allure.yml`'s
+`artifact_name` input downloads it back down in the next job:
+
 ```yaml
 jobs:
   test:
@@ -34,7 +39,7 @@ jobs:
     with:
       project_name: legacy-scout
       report_source_type: robotframework
-      results_dir: ${{ needs.test.outputs.allure_results_dir }}
+      artifact_name: allure-results
 ```
 
 ## publish-allure.yml
@@ -46,6 +51,13 @@ must produce native Allure results first (Robot Framework via the
 `allure_robotframework` listener, Playwright via the `allure-playwright`
 reporter), then call this workflow.
 
+If your test step and this workflow run in the same job, `results_dir` just
+needs to point at the directory on disk. If they're separate jobs (the
+usual case — this workflow needs its own `runs-on: self-hosted` to reach
+the in-cluster server), upload the results as an artifact in the test job
+and pass its name via `artifact_name` instead — jobs don't share a
+filesystem, so `results_dir` alone won't carry files across a job boundary:
+
 ```yaml
 jobs:
   test:
@@ -53,6 +65,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: robot --listener allure_robotframework:allure-results suites/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
 
   publish:
     needs: test
@@ -60,7 +76,7 @@ jobs:
     with:
       project_name: legacy-scout
       report_source_type: robotframework
-      results_dir: allure-results
+      artifact_name: allure-results
 ```
 
 See `oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md` §7 and
