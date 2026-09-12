@@ -1,0 +1,126 @@
+name: Publish Allure report
+
+# Reusable workflow: pushes an already-generated Allure results directory to
+# the shared allure-server (allure-reports namespace) and renders it.
+#
+# It does NOT run your tests. Your own job must produce a results_dir full of
+# Allure's native JSON result files *before* calling this workflow:
+#   - Robot Framework: run with `--listener allure_robotframework:<dir>`
+#     (the `allure-robotframework` package) — this writes native results
+#     directly, no conversion step.
+#   - Playwright (TypeScript): configure the `allure-playwright` reporter in
+#     playwright.config.ts pointing at <dir> — same native-results contract.
+#
+# See oguz-labs/oguz-lab-infra/docs/adr/ADR-009-Allure-Report-Upload-Guide.md
+# and oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md §7 for the
+# conventions this workflow enforces (project_id = product name, build
+# attribution via environment.properties).
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Runner label to execute on. The shared allure-server has no
+          Ingress and is only reachable at its in-cluster DNS name, so this
+          must resolve to a self-hosted runner with cluster network access
+          unless you also override allure_base_url with a reachable address
+          (e.g. a kubectl port-forward target for local testing).
+        type: string
+        default: self-hosted
+      project_name:
+        description: >-
+          Allure project_id on the shared server. Convention: the target's
+          `product` field from its .elastic-automation.yaml, not the repo
+          directory name — one target, one project on the shared server.
+        type: string
+        required: true
+      report_source_type:
+        description: >-
+          Framework that produced results_dir. Used only for validation and
+          labeling — this workflow uploads Allure's native result format
+          either way; it does not run tests or convert formats.
+        type: string
+        required: true
+      results_dir:
+        description: >-
+          Path (relative to the calling repo's checkout) to the directory of
+          already-generated native Allure result files.
+        type: string
+        default: allure-results
+      commit_sha:
+        description: Commit SHA the results were produced against, for attribution.
+        type: string
+        default: ${{ github.sha }}
+      allure_base_url:
+        description: >-
+          Base URL of the allure-docker-service API. Defaults to the
+          in-cluster address reachable only from self-hosted runners.
+        type: string
+        default: http://allure-server.allure-reports.svc.cluster.local:5055/allure-docker-service
+    outputs:
+      report_url:
+        description: URL of the generated report for this project.
+        value: ${{ jobs.publish.outputs.report_url }}
+
+jobs:
+  publish:
+    runs-on: ${{ inputs.runs_on }}
+    outputs:
+      report_url: ${{ steps.generate.outputs.report_url }}
+    env:
+      PROJECT_NAME: ${{ inputs.project_name }}
+      REPORT_SOURCE_TYPE: ${{ inputs.report_source_type }}
+      RESULTS_DIR: ${{ inputs.results_dir }}
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+      ALLURE_BASE_URL: ${{ inputs.allure_base_url }}
+    steps:
+      - name: Validate report_source_type
+        run: |
+          case "$REPORT_SOURCE_TYPE" in
+            robotframework|"TypeScript playwright") ;;
+            *)
+              echo "::error::report_source_type must be 'robotframework' or 'TypeScript playwright', got '$REPORT_SOURCE_TYPE'"
+              exit 1
+              ;;
+          esac
+
+      - name: Verify results_dir exists and is non-empty
+        run: |
+          if [ ! -d "$RESULTS_DIR" ] || [ -z "$(ls -A "$RESULTS_DIR" 2>/dev/null)" ]; then
+            echo "::error::results_dir '$RESULTS_DIR' is missing or empty — this workflow uploads results, it does not generate them. Run your tests with the framework's native Allure writer first."
+            exit 1
+          fi
+
+      - name: Stamp environment.properties for attribution
+        run: |
+          {
+            echo "target=$PROJECT_NAME"
+            echo "commit_sha=$COMMIT_SHA"
+            echo "report_source_type=$REPORT_SOURCE_TYPE"
+          } >> "$RESULTS_DIR/environment.properties"
+
+      - name: Create project if it doesn't already exist
+        run: |
+          existing=$(curl -sf -G "$ALLURE_BASE_URL/projects/$PROJECT_NAME") || existing=""
+          if ! echo "$existing" | grep -q '"id"'; then
+            curl -sf -X POST "$ALLURE_BASE_URL/projects" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -nc --arg id "$PROJECT_NAME" '{id: $id}')"
+          fi
+
+      - name: Upload results
+        run: |
+          args=()
+          while IFS= read -r -d '' f; do
+            args+=(-F "files[]=@$f")
+          done < <(find "$RESULTS_DIR" -type f -print0)
+          curl -sf -G -X POST "$ALLURE_BASE_URL/send-results" --data-urlencode "project_id=$PROJECT_NAME" "${args[@]}"
+
+      - name: Generate report
+        id: generate
+        run: |
+          curl -sf -G "$ALLURE_BASE_URL/generate-report" --data-urlencode "project_id=$PROJECT_NAME"
+          url="$ALLURE_BASE_URL/projects/$PROJECT_NAME/reports/latest/index.html"
+          echo "report_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Report: $url"
