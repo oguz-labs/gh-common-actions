@@ -44,10 +44,22 @@ on:
         required: true
       results_dir:
         description: >-
-          Path (relative to the calling repo's checkout) to the directory of
-          already-generated native Allure result files.
+          Path to the directory of already-generated native Allure result
+          files. If artifact_name is empty, this must already exist on this
+          job's own runner (e.g. a checkout in the same job) — GitHub
+          Actions jobs never share a filesystem, so a results_dir produced
+          by an earlier job in the same workflow will NOT simply be present
+          here unless artifact_name is used to fetch it.
         type: string
         default: allure-results
+      artifact_name:
+        description: >-
+          Name of a GitHub Actions artifact (uploaded via actions/upload-artifact
+          in an earlier job of the same workflow run) to download into
+          results_dir before publishing. Leave empty if results_dir is
+          already populated in this job (e.g. this job also ran the tests).
+        type: string
+        default: ""
       commit_sha:
         description: Commit SHA the results were produced against, for attribution.
         type: string
@@ -75,6 +87,13 @@ jobs:
       COMMIT_SHA: ${{ inputs.commit_sha }}
       ALLURE_BASE_URL: ${{ inputs.allure_base_url }}
     steps:
+      - name: Download results artifact
+        if: ${{ inputs.artifact_name != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.results_dir }}
+
       - name: Validate report_source_type
         run: |
           case "$REPORT_SOURCE_TYPE" in
@@ -111,11 +130,24 @@ jobs:
 
       - name: Upload results
         run: |
+          # curl rejects combining -G (query-string encoding) with -F
+          # (multipart), so project_id is percent-encoded by hand instead.
+          encoded_project=$(jq -rn --arg v "$PROJECT_NAME" '$v|@uri')
+          batch_size=200
           args=()
+          count=0
           while IFS= read -r -d '' f; do
             args+=(-F "files[]=@$f")
+            count=$((count + 1))
+            if [ "$count" -ge "$batch_size" ]; then
+              curl -sf -X POST "$ALLURE_BASE_URL/send-results?project_id=$encoded_project" "${args[@]}"
+              args=()
+              count=0
+            fi
           done < <(find "$RESULTS_DIR" -type f -print0)
-          curl -sf -G -X POST "$ALLURE_BASE_URL/send-results" --data-urlencode "project_id=$PROJECT_NAME" "${args[@]}"
+          if [ "$count" -gt 0 ]; then
+            curl -sf -X POST "$ALLURE_BASE_URL/send-results?project_id=$encoded_project" "${args[@]}"
+          fi
 
       - name: Generate report
         id: generate
@@ -124,3 +156,4 @@ jobs:
           url="$ALLURE_BASE_URL/projects/$PROJECT_NAME/reports/latest/index.html"
           echo "report_url=$url" >> "$GITHUB_OUTPUT"
           echo "Report: $url"
+          echo "Report: $url" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,60 @@
+name: Run Robot Framework suite
+
+# Reusable workflow: runs a target's Robot Framework suite and uploads the
+# resulting results/ directory as a build artifact. Nothing else — no
+# bootstrap, no lint, no static checks. Python/robot tooling is assumed to
+# already be present on the runner image; if a target needs to install
+# anything first, fold that into test_command itself.
+#
+# This workflow is entirely Allure-agnostic. Publishing a report to the
+# shared allure-server is publish-allure.yml's job, called separately by
+# the caller.
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: >-
+          Runner label to execute on. Default self-hosted since the SUT is
+          typically only reachable from inside the org network/cluster.
+        type: string
+        default: self-hosted
+      working_directory:
+        description: Directory (relative to repo root) to run test_command in.
+        type: string
+        default: tests
+      test_command:
+        description: Runs the suite and produces results/.
+        type: string
+        default: make run
+      upload_report:
+        description: Upload the results to artifacts.
+        type: boolean
+        default: true
+      retention:
+        description: Retention period for artifacts in days.
+        type: number
+        default: 7
+
+jobs:
+  test:
+    runs-on: ${{ inputs.runs_on }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+          submodules: 'true'
+
+      - name: Run suite
+        run: ${{ inputs.test_command }}
+
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.upload_report
+        with:
+          retention-days: ${{ inputs.retention }}
+          name: robot-results
+          path: ${{ inputs.working_directory }}/results/
+          if-no-files-found: warn

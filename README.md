@@ -3,44 +3,18 @@ Github workflows/actions library
 
 ## run-robotframework.yml
 
-Reusable workflow for a target's install/lint/check/test steps and results
-upload. Nothing assumes `make` — every step is a plain command string
-(`bootstrap_command`/`lint_command`/`check_command`/`test_command`); the
-defaults match `old-scout/tests/Makefile` for convenience only, since
-elastic-automation's onboarding convention doesn't guarantee any target has
-a Makefile at all. `lint_command`/`check_command` are empty (skipped) by
-default — `check` in particular (a static test-intent trace) is an
-elastic-automation convention, not something every target has an
-equivalent of. Flip `enable_allure: true` to export `ROBOT_OPTIONS` with
-the `allure_robotframework` listener before `test_command` runs (appended
-to any `ROBOT_OPTIONS` the caller already set, never overwriting it — and
-only effective if `test_command`'s own tooling reads that env var) and get
-the resulting `allure-results` directory uploaded too, for chaining into
-`publish-allure.yml`.
+Reusable workflow that runs a target's Robot Framework suite
+(`test_command`, default `make run`) and uploads the resulting `results/`
+directory as a build artifact. Nothing else — no bootstrap, no lint, no
+static checks; runner images are assumed to already have Python/robot
+tooling installed. If a target needs setup first, fold it into
+`test_command`.
 
-Jobs never share a filesystem in GitHub Actions, so chaining into
-`publish-allure.yml` goes through an actual artifact — `enable_allure`
-uploads one named `allure-results`, and `publish-allure.yml`'s
-`artifact_name` input downloads it back down in the next job:
-
-```yaml
-jobs:
-  test:
-    uses: oguz-labs/gh-common-actions/.github/workflows/run-robotframework.yml@main
-    with:
-      working_directory: tests
-      sut_url: https://legacy-scout.internal
-      enable_allure: true
-
-  publish:
-    needs: test
-    if: needs.test.outputs.allure_results_dir != ''
-    uses: oguz-labs/gh-common-actions/.github/workflows/publish-allure.yml@main
-    with:
-      project_name: legacy-scout
-      report_source_type: robotframework
-      artifact_name: allure-results
-```
+This workflow is entirely Allure-agnostic — it has no `enable_allure` input
+and no Allure output. If a target wants an Allure report, that's entirely
+between the caller's own job and `publish-allure.yml`; see the example
+under `publish-allure.yml` below for how a caller wires the listener and
+artifact upload itself, independent of this workflow.
 
 ## publish-allure.yml
 
