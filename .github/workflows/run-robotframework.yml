@@ -1,23 +1,33 @@
 name: Run Robot Framework suite
 
-# Reusable workflow: runs `make bootstrap && make run` for a target's Robot
-# Framework suite and uploads the resulting results/ directory as a build
-# artifact. Nothing here is Allure-specific — the suite itself has no idea
-# an Allure listener exists unless the caller opts in via
-# allure_results_dir, and generating a report is entirely publish-allure.yml's
-# job (chain this workflow's allure_results_dir output into it).
+# Reusable workflow: runs a target's install/lint/check/test commands and
+# uploads the resulting results/ directory as a build artifact. `make` is
+# NOT assumed — nothing in elastic-automation's onboarding convention
+# (docs/ONBOARDING.md) guarantees a target even has a Makefile, so every
+# step is a plain command string the caller controls. The defaults below
+# match old-scout/tests/Makefile purely for convenience; a target built a
+# different way (bare `robot` invocation, a different task runner, the
+# Playwright case this library's publish-allure.yml already anticipates)
+# overrides them.
 #
-# `lint` and `check` are NOT generic Robot Framework concepts — do not assume
-# every target's Makefile defines them:
-#   - `lint` is commonly wired to `robot --dryrun` (a real, built-in RF flag
+# Nothing here is Allure-specific either — the suite itself has no idea an
+# Allure listener exists unless the caller opts in via enable_allure, and
+# generating a report is entirely publish-allure.yml's job (chain this
+# workflow's allure_results_dir output into it). enable_allure works by
+# exporting ROBOT_OPTIONS before test_command runs — it only has an effect
+# if test_command's own tooling actually reads that env var, the way
+# old-scout's Makefile does.
+#
+# lint_command/check_command are NOT generic Robot Framework concepts — do
+# not assume every target has an equivalent:
+#   - a "lint" step is commonly `robot --dryrun` (a real, built-in RF flag
 #     that resolves keywords/syntax without executing) — worth running if
-#     the target's Makefile has it, harmless if it doesn't apply here.
-#   - `check` is elastic-automation-specific: a static test-intent trace
-#     (docs/REGRESSION_REPLAY.md §6 in oguz-labs/elastic-automation) that
-#     old-scout happens to expose as `make check` — a target onboarded
-#     differently may have no such target at all.
-# Both default OFF; only turn them on for a target whose Makefile actually
-# defines them.
+#     the target has an equivalent, skip it (leave the input empty) if not.
+#   - a "check" step is elastic-automation-specific: a static test-intent
+#     trace (docs/REGRESSION_REPLAY.md §6) that old-scout happens to expose
+#     as `make check` — a target onboarded differently may have nothing
+#     resembling it at all.
+# Both are empty (skipped) by default.
 
 on:
   workflow_call:
@@ -29,36 +39,36 @@ on:
         type: string
         default: self-hosted
       working_directory:
-        description: Directory (relative to repo root) containing the target's test Makefile.
+        description: Directory (relative to repo root) to run all commands in.
         type: string
         default: tests
       sut_url:
-        description: Base URL of the system under test. Passed through as SUT_URL; omit to use the target's own Makefile default.
+        description: Base URL of the system under test. Passed through as SUT_URL; omit to use the target's own default.
         type: string
         default: ""
-      python:
-        description: >-
-          Value passed as the Makefile's PYTHON variable (interpreter used
-          to create .venv). Deliberately no actions/setup-python here — org
-          convention on self-hosted runners is to use whatever python3 is
-          baked into the runner image, not to install one per job. Leave
-          empty to use the target's own Makefile default.
+      bootstrap_command:
+        description: Installs dependencies (deliberately no actions/setup-python — org convention on self-hosted runners is to use whatever python3 is baked into the runner image).
+        type: string
+        default: make bootstrap
+      lint_command:
+        description: Optional static-syntax check, e.g. `robot --dryrun`. Empty (default) skips this step.
         type: string
         default: ""
+      check_command:
+        description: Optional target-specific static check (e.g. elastic-automation's test-intent trace). Empty (default) skips this step.
+        type: string
+        default: ""
+      test_command:
+        description: Runs the suite and produces results/.
+        type: string
+        default: make run
       enable_allure:
         description: >-
-          Wire `--listener allure_robotframework:<dir>` into the run and
-          upload the resulting directory (fixed name `allure-results`) as an
-          artifact, for chaining into publish-allure.yml. Off by default —
-          the suite run itself stays Allure-agnostic unless you opt in.
-        type: boolean
-        default: false
-      run_lint:
-        description: Run `make lint`, if the target's Makefile defines it.
-        type: boolean
-        default: false
-      run_check:
-        description: Run `make check`, if the target's Makefile defines it.
+          Export ROBOT_OPTIONS with `--listener allure_robotframework:<dir>`
+          before test_command runs, and upload the resulting directory
+          (fixed name `allure-results`) as an artifact, for chaining into
+          publish-allure.yml. Only takes effect if test_command's own
+          tooling reads ROBOT_OPTIONS. Off by default.
         type: boolean
         default: false
     outputs:
@@ -74,7 +84,6 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
     env:
       SUT_URL: ${{ inputs.sut_url }}
-      PYTHON: ${{ inputs.python }}
       ENABLE_ALLURE: ${{ inputs.enable_allure }}
       ALLURE_RESULTS_DIR: allure-results
     outputs:
@@ -83,15 +92,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bootstrap
-        run: make bootstrap ${PYTHON:+PYTHON=$PYTHON}
+        run: ${{ inputs.bootstrap_command }}
 
       - name: Lint
-        if: ${{ inputs.run_lint }}
-        run: make lint
+        if: ${{ inputs.lint_command != '' }}
+        run: ${{ inputs.lint_command }}
 
       - name: Static intent check
-        if: ${{ inputs.run_check }}
-        run: make check
+        if: ${{ inputs.check_command != '' }}
+        run: ${{ inputs.check_command }}
 
       - name: Run suite
         run: |
@@ -99,7 +108,7 @@ jobs:
           if [ "$ENABLE_ALLURE" = "true" ]; then
             export ROBOT_OPTIONS="${ROBOT_OPTIONS:+$ROBOT_OPTIONS }--listener allure_robotframework:$PWD/$ALLURE_RESULTS_DIR"
           fi
-          make run
+          ${{ inputs.test_command }}
 
       - uses: actions/upload-artifact@v4
         if: always()

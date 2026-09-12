@@ -3,16 +3,20 @@ Github workflows/actions library
 
 ## run-robotframework.yml
 
-Reusable workflow that runs `make bootstrap && make run` for a target's
-Robot Framework suite and uploads the whole `results/` directory as a build
-artifact. The suite run itself has no Allure awareness by default — flip
-`enable_allure: true` to wire the `allure_robotframework` listener into the
-run (appended to any `ROBOT_OPTIONS` the caller already set, never
-overwriting it) and get the resulting `allure-results` directory uploaded
-too, for chaining into `publish-allure.yml`. `lint`/`check` are off by
-default and only worth turning on for a target whose Makefile actually
-defines them — `check` in particular (a static test-intent trace) is an
-elastic-automation convention, not something every target has.
+Reusable workflow for a target's install/lint/check/test steps and results
+upload. Nothing assumes `make` — every step is a plain command string
+(`bootstrap_command`/`lint_command`/`check_command`/`test_command`); the
+defaults match `old-scout/tests/Makefile` for convenience only, since
+elastic-automation's onboarding convention doesn't guarantee any target has
+a Makefile at all. `lint_command`/`check_command` are empty (skipped) by
+default — `check` in particular (a static test-intent trace) is an
+elastic-automation convention, not something every target has an
+equivalent of. Flip `enable_allure: true` to export `ROBOT_OPTIONS` with
+the `allure_robotframework` listener before `test_command` runs (appended
+to any `ROBOT_OPTIONS` the caller already set, never overwriting it — and
+only effective if `test_command`'s own tooling reads that env var) and get
+the resulting `allure-results` directory uploaded too, for chaining into
+`publish-allure.yml`.
 
 ```yaml
 jobs:
