@@ -1,18 +1,23 @@
 name: Run Robot Framework suite
 
-# Reusable workflow: runs a target's Robot Framework suite against its Makefile
-# conventions (bootstrap -> lint -> check -> run) and uploads both the native
-# RF artifacts and a native Allure results directory as build artifacts.
+# Reusable workflow: runs `make bootstrap && make run` for a target's Robot
+# Framework suite and uploads the resulting results/ directory as a build
+# artifact. Nothing here is Allure-specific — the suite itself has no idea
+# an Allure listener exists unless the caller opts in via
+# allure_results_dir, and generating a report is entirely publish-allure.yml's
+# job (chain this workflow's allure_results_dir output into it).
 #
-# It does NOT publish to the shared Allure server — chain this workflow's
-# allure_results_dir output into publish-allure.yml from the calling
-# workflow, so a repo that only wants local artifacts isn't forced to talk
-# to the shared server.
-#
-# Assumes the target's own Makefile exposes `bootstrap`, `lint`, `check`,
-# `run` targets and honours a `SUT_URL` env var and `ROBOT_OPTIONS` passthrough
-# to the `robot` invocation — see oguz-labs/old-scout/tests/Makefile for the
-# reference shape this was modeled on.
+# `lint` and `check` are NOT generic Robot Framework concepts — do not assume
+# every target's Makefile defines them:
+#   - `lint` is commonly wired to `robot --dryrun` (a real, built-in RF flag
+#     that resolves keywords/syntax without executing) — worth running if
+#     the target's Makefile has it, harmless if it doesn't apply here.
+#   - `check` is elastic-automation-specific: a static test-intent trace
+#     (docs/REGRESSION_REPLAY.md §6 in oguz-labs/elastic-automation) that
+#     old-scout happens to expose as `make check` — a target onboarded
+#     differently may have no such target at all.
+# Both default OFF; only turn them on for a target whose Makefile actually
+# defines them.
 
 on:
   workflow_call:
@@ -27,31 +32,38 @@ on:
         description: Directory (relative to repo root) containing the target's test Makefile.
         type: string
         default: tests
-      python_version:
-        description: >-
-          Pinned by default to 3.13 — robotframework-browser/grpcio have a
-          known incompatibility with 3.14 as of this writing.
-        type: string
-        default: "3.13"
       sut_url:
         description: Base URL of the system under test. Passed through as SUT_URL; omit to use the target's own Makefile default.
         type: string
         default: ""
-      allure_results_dir:
-        description: Directory (relative to working_directory) the Allure listener writes native results into.
+      python:
+        description: >-
+          Value passed as the Makefile's PYTHON variable (interpreter used
+          to create .venv). Deliberately no actions/setup-python here — org
+          convention on self-hosted runners is to use whatever python3 is
+          baked into the runner image, not to install one per job. Leave
+          empty to use the target's own Makefile default.
         type: string
-        default: allure-results
+        default: ""
+      enable_allure:
+        description: >-
+          Wire `--listener allure_robotframework:<dir>` into the run and
+          upload the resulting directory (fixed name `allure-results`) as an
+          artifact, for chaining into publish-allure.yml. Off by default —
+          the suite run itself stays Allure-agnostic unless you opt in.
+        type: boolean
+        default: false
       run_lint:
-        description: Run `make lint` before `make check`/`make run`.
+        description: Run `make lint`, if the target's Makefile defines it.
         type: boolean
-        default: true
+        default: false
       run_check:
-        description: Run `make check` (static intent trace) before `make run`.
+        description: Run `make check`, if the target's Makefile defines it.
         type: boolean
-        default: true
+        default: false
     outputs:
       allure_results_dir:
-        description: Path to the generated Allure results directory, for chaining into publish-allure.yml.
+        description: Path to the generated Allure results directory, empty if enable_allure was false.
         value: ${{ jobs.test.outputs.allure_results_dir }}
 
 jobs:
@@ -62,18 +74,16 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
     env:
       SUT_URL: ${{ inputs.sut_url }}
-      ALLURE_RESULTS_DIR: ${{ inputs.allure_results_dir }}
+      PYTHON: ${{ inputs.python }}
+      ENABLE_ALLURE: ${{ inputs.enable_allure }}
+      ALLURE_RESULTS_DIR: allure-results
     outputs:
-      allure_results_dir: ${{ inputs.working_directory }}/${{ inputs.allure_results_dir }}
+      allure_results_dir: ${{ inputs.enable_allure && format('{0}/allure-results', inputs.working_directory) || '' }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python_version }}
-
       - name: Bootstrap
-        run: make bootstrap
+        run: make bootstrap ${PYTHON:+PYTHON=$PYTHON}
 
       - name: Lint
         if: ${{ inputs.run_lint }}
@@ -83,23 +93,24 @@ jobs:
         if: ${{ inputs.run_check }}
         run: make check
 
-      - name: Run suite with Allure listener
+      - name: Run suite
         run: |
           [ -n "$SUT_URL" ] && export SUT_URL
-          export ROBOT_OPTIONS="--listener allure_robotframework:$PWD/$ALLURE_RESULTS_DIR"
+          if [ "$ENABLE_ALLURE" = "true" ]; then
+            export ROBOT_OPTIONS="${ROBOT_OPTIONS:+$ROBOT_OPTIONS }--listener allure_robotframework:$PWD/$ALLURE_RESULTS_DIR"
+          fi
           make run
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: robot-results
-          path: |
-            ${{ inputs.working_directory }}/results/output.xml
-            ${{ inputs.working_directory }}/results/log.html
-            ${{ inputs.working_directory }}/results/report.html
+          path: ${{ inputs.working_directory }}/results/
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && inputs.enable_allure }}
         with:
           name: allure-results
-          path: ${{ inputs.working_directory }}/${{ inputs.allure_results_dir }}
+          path: ${{ inputs.working_directory }}/allure-results
+          if-no-files-found: warn

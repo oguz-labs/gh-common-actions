@@ -3,14 +3,16 @@ Github workflows/actions library
 
 ## run-robotframework.yml
 
-Reusable workflow that runs a target's Robot Framework suite following the
-`bootstrap -> lint -> check -> run` Makefile convention (see
-`oguz-labs/old-scout/tests/Makefile`), wires the `allure_robotframework`
-listener into the run automatically, and uploads both the native RF
-artifacts (`output.xml`/`log.html`/`report.html`) and the generated
-`allure-results` directory as build artifacts. It does not publish to the
-shared Allure server — chain its `allure_results_dir` output into
-`publish-allure.yml` from the calling workflow.
+Reusable workflow that runs `make bootstrap && make run` for a target's
+Robot Framework suite and uploads the whole `results/` directory as a build
+artifact. The suite run itself has no Allure awareness by default — flip
+`enable_allure: true` to wire the `allure_robotframework` listener into the
+run (appended to any `ROBOT_OPTIONS` the caller already set, never
+overwriting it) and get the resulting `allure-results` directory uploaded
+too, for chaining into `publish-allure.yml`. `lint`/`check` are off by
+default and only worth turning on for a target whose Makefile actually
+defines them — `check` in particular (a static test-intent trace) is an
+elastic-automation convention, not something every target has.
 
 ```yaml
 jobs:
@@ -19,9 +21,11 @@ jobs:
     with:
       working_directory: tests
       sut_url: https://legacy-scout.internal
+      enable_allure: true
 
   publish:
     needs: test
+    if: needs.test.outputs.allure_results_dir != ''
     uses: oguz-labs/gh-common-actions/.github/workflows/publish-allure.yml@main
     with:
       project_name: legacy-scout
