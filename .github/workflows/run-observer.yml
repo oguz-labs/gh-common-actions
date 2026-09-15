@@ -42,9 +42,8 @@ on:
         description: >-
           Build identity this crawl was taken against (a git SHA or image
           tag). Leave empty to default to this workflow run's own commit
-          SHA — workflow_dispatch input defaults can't be expressions
-          (`${{ github.sha }}` here would be a literal, invalid startup
-          failure), so the fallback happens at run time instead.
+          SHA — an expression default is not valid here for
+          workflow_dispatch, so the fallback happens at run time instead.
         type: string
         default: ""
       seed_paths:
@@ -105,9 +104,8 @@ on:
         description: >-
           Build identity this crawl was taken against (a git SHA or image
           tag). Leave empty to default to this workflow run's own commit
-          SHA — workflow_dispatch input defaults can't be expressions
-          (`${{ github.sha }}` here would be a literal, invalid startup
-          failure), so the fallback happens at run time instead.
+          SHA — an expression default is not valid here for
+          workflow_dispatch, so the fallback happens at run time instead.
         type: string
         default: ""
       seed_paths:
