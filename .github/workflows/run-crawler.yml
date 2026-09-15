@@ -38,10 +38,6 @@ on:
           this CLI — there's no wall_resolver wiring yet).
         type: string
         default: ci
-      manifest_id:
-        description: Manifest id this crawl publishes under (e.g. ui:<product>:<spec>).
-        type: string
-        required: true
       build_id:
         description: Build identity this crawl was taken against (a git SHA or image tag).
         type: string
@@ -60,7 +56,11 @@ on:
         type: string
         required: true
       artifact_name:
-        description: Name of the uploaded build artifact.
+        description: >-
+          Name of the uploaded build artifact — also doubles as this
+          crawl's identity (passed as --manifest-id to observer.crawler),
+          so pass the same value to replay.yml rather than inventing a
+          second name for the same thing.
         type: string
         default: crawler-output
       retention:
@@ -78,7 +78,7 @@ jobs:
     env:
       SUT_URL: ${{ inputs.sut_url }}
       MODE: ${{ inputs.mode }}
-      MANIFEST_ID: ${{ inputs.manifest_id }}
+      MANIFEST_ID: ${{ inputs.artifact_name }}
       BUILD_ID: ${{ inputs.build_id }}
       SEED_PATHS: ${{ inputs.seed_paths }}
       VERSION: ${{ inputs.version }}

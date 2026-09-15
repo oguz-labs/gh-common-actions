@@ -68,10 +68,15 @@ This workflow has **zero knowledge of the target's own repo layout or
 commit conventions**. It never writes into `bindings_dir`/`artifacts_dir`
 inside the checkout, and it never commits or pushes anything — it writes
 both output files to a workflow-local scratch directory and uploads them
-as one artifact (`artifact_name`, default `crawler-output`). What the
-caller does with that artifact — unpacking it into its own `bindings_dir`,
-committing `elastic-pom.yaml`, opening a PR — is entirely the target
-project's own job and its own engineers' call, never this workflow's.
+as one artifact. What the caller does with that artifact — unpacking it
+into its own `bindings_dir`, committing `elastic-pom.yaml`, opening a
+PR — is entirely the target project's own job and its own engineers'
+call, never this workflow's.
+
+`artifact_name` (default `crawler-output`) doubles as this crawl's
+identity internally — there's no separate `manifest_id` input to also
+invent and keep in sync; pass the same `artifact_name` to `replay.yml`
+and it finds the matching baseline on its own.
 
 ```yaml
 jobs:
@@ -79,7 +84,7 @@ jobs:
     uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
     with:
       sut_url: https://legacy-scout.internal
-      manifest_id: ui:legacy-scout:spec-1
+      artifact_name: legacy-scout-spec-1
       version: v0.2.0
 ```
 
@@ -105,7 +110,7 @@ jobs:
     uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
     with:
       sut_url: https://legacy-scout.internal
-      manifest_id: ui:legacy-scout:spec-1
+      artifact_name: legacy-scout-spec-1
       version: v0.2.0
 
   replay:
@@ -113,7 +118,6 @@ jobs:
     uses: oguz-labs/gh-common-actions/.github/workflows/replay.yml@main
     with:
       artifact_name: ${{ needs.crawl.outputs.artifact_name }}
-      manifest_id: ui:legacy-scout:spec-1
       baseline_dir: tests/baseline
       version: v0.2.0
 ```
