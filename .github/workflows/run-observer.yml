@@ -16,15 +16,16 @@ name: Run observer
 # Comparing this run's output against a promoted baseline is a separate
 # concern (observer.replay_cli), called by the caller in a later step —
 # no shared workflow for that yet.
+#
+# Input descriptions below are kept short on purpose (GitHub's UI gives
+# them little room) — see this comment block and the individual step
+# comments for the full rationale.
 
 on:
   workflow_call:
     inputs:
       runs_on:
-        description: >-
-          Runner label to execute on. Default is the org's single
-          self-hosted pool (label `kubernetes`, ARC-managed) — the SUT is
-          typically only reachable from inside the cluster network.
+        description: Runner label. Default is the org's self-hosted pool.
         type: string
         default: kubernetes
       sut_url:
@@ -32,61 +33,45 @@ on:
         type: string
         required: true
       mode:
-        description: >-
-          'ci' (autonomous, never blocks — unreachable walls are marked,
-          not fatal) or 'interactive' (currently behaves like 'ci' from
-          this CLI — there's no wall_resolver wiring yet).
+        description: "'ci' (never blocks) or 'interactive' crawl mode."
         type: string
         default: ci
       build_id:
-        description: >-
-          Build identity this crawl was taken against (a git SHA or image
-          tag). Leave empty to default to this workflow run's own commit
-          SHA — an expression default is not valid here for
-          workflow_dispatch, so the fallback happens at run time instead.
+        description: Build/commit identity. Empty = this run's own SHA.
         type: string
         default: ""
       seed_paths:
-        description: >-
-          Path (relative to the checkout) to an existing seed-paths.yaml
-          to read, if the target has one. Leave empty if it doesn't yet.
-          Read-only input — this workflow never writes into the checkout.
+        description: Path to an existing seed-paths.yaml, if any.
         type: string
         default: ""
       version:
-        description: >-
-          elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.1).
+        description: elastic-automation tag/SHA to pin (e.g. v0.2.1).
         type: string
         required: true
       artifact_name:
-        description: >-
-          Name of the uploaded build artifact — also doubles as this
-          crawl's identity (passed as --manifest-id to observer.crawler),
-          so pass the same value to replay.yml rather than inventing a
-          second name for the same thing.
+        description: Output artifact name; also this crawl's identity.
         type: string
         default: crawler-output
       retention:
-        description: Retention period for the artifact, in days.
+        description: Artifact retention, in days.
         type: number
         default: 7
     outputs:
       artifact_name:
-        description: Name of the build artifact containing manifest.yaml + elastic-pom.yaml.
+        description: Artifact name holding manifest.yaml + elastic-pom.yaml.
         value: ${{ inputs.artifact_name }}
   workflow_dispatch:
     # Same inputs as workflow_call, minus the outputs block (workflow_dispatch
     # doesn't support one) — lets a human trigger a one-off crawl manually
     # from the Actions UI/CLI without needing a caller workflow.
     # `retention` is `type: string` here, not `number` — workflow_dispatch
-    # doesn't support that type.
+    # doesn't support that type. Defaults must be static values here (no
+    # `${{ }}` expressions), including inside `description:` — GitHub
+    # Actions expands `${{ }}` in any workflow string field, not just
+    # run:/env:, so it can't even appear as documentation-in-backticks.
     inputs:
       runs_on:
-        description: >-
-          Runner label to execute on. Default is the org's single
-          self-hosted pool (label `kubernetes`, ARC-managed) — the SUT is
-          typically only reachable from inside the cluster network.
+        description: Runner label. Default is the org's self-hosted pool.
         type: string
         default: kubernetes
       sut_url:
@@ -94,43 +79,27 @@ on:
         type: string
         required: true
       mode:
-        description: >-
-          'ci' (autonomous, never blocks — unreachable walls are marked,
-          not fatal) or 'interactive' (currently behaves like 'ci' from
-          this CLI — there's no wall_resolver wiring yet).
+        description: "'ci' (never blocks) or 'interactive' crawl mode."
         type: string
         default: ci
       build_id:
-        description: >-
-          Build identity this crawl was taken against (a git SHA or image
-          tag). Leave empty to default to this workflow run's own commit
-          SHA — an expression default is not valid here for
-          workflow_dispatch, so the fallback happens at run time instead.
+        description: Build/commit identity. Empty = this run's own SHA.
         type: string
         default: ""
       seed_paths:
-        description: >-
-          Path (relative to the checkout) to an existing seed-paths.yaml
-          to read, if the target has one. Leave empty if it doesn't yet.
-          Read-only input — this workflow never writes into the checkout.
+        description: Path to an existing seed-paths.yaml, if any.
         type: string
         default: ""
       version:
-        description: >-
-          elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.1).
+        description: elastic-automation tag/SHA to pin (e.g. v0.2.1).
         type: string
         required: true
       artifact_name:
-        description: >-
-          Name of the uploaded build artifact — also doubles as this
-          crawl's identity (passed as --manifest-id to observer.crawler),
-          so pass the same value to replay-observer.yml rather than
-          inventing a second name for the same thing.
+        description: Output artifact name; also this crawl's identity.
         type: string
         default: crawler-output
       retention:
-        description: Retention period for the artifact, in days.
+        description: Artifact retention, in days.
         type: string
         default: "7"
 

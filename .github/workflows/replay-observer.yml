@@ -11,39 +11,36 @@ name: Replay observer
 # never checks anything in (baseline_dir is read as-is from the checkout;
 # promoting a new baseline is a separate, human/TTL-authorized step, not
 # this workflow's job).
+#
+# `runs_on` defaults to GitHub-hosted (ubuntu-latest) — deliberately
+# different from run-observer.yml's `kubernetes` default: this job never
+# talks to the SUT, only to the checkout, a downloaded artifact, and pip.
+#
+# `artifact_name` doubles as this crawl's identity (matches
+# run-observer.yml's `artifact_name` output) — pass the exact same value
+# so this workflow finds the right subfolder under baseline_dir; there's
+# only ever one name to keep in sync, not two.
+#
+# Input descriptions below are kept short on purpose (GitHub's UI gives
+# them little room) — see this comment block for the full rationale.
 
 on:
   workflow_call:
     inputs:
       runs_on:
-        description: >-
-          Runner label to execute on. Default is GitHub-hosted
-          (ubuntu-latest) — deliberately different from run-observer.yml's
-          `kubernetes` default: this job never talks to the SUT, only to
-          the checkout, a downloaded artifact, and pip — no cluster
-          network access needed.
+        description: Runner label. Default is GitHub-hosted.
         type: string
         default: ubuntu-latest
       artifact_name:
-        description: >-
-          Name of the build artifact containing this run's manifest.yaml +
-          elastic-pom.yaml (run-observer.yml's `artifact_name` output —
-          pass the exact same value here; it also doubles as this crawl's
-          identity for finding the right subfolder under baseline_dir, so
-          there's only ever one name to keep in sync between the two
-          workflows, not two).
+        description: Crawl artifact name (run-observer.yml's output).
         type: string
         required: true
       baseline_dir:
-        description: >-
-          The target's promoted baseline directory, relative to the
-          checkout. Read-only — this workflow never writes to it.
+        description: Target's promoted baseline dir, relative to checkout.
         type: string
         required: true
       version:
-        description: >-
-          elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.1).
+        description: elastic-automation tag/SHA to pin (e.g. v0.2.1).
         type: string
         required: true
   workflow_dispatch:
@@ -54,28 +51,19 @@ on:
     # run-observer.yml run in this repo) — this workflow never crawls.
     inputs:
       runs_on:
-        description: >-
-          Runner label to execute on. Default is GitHub-hosted
-          (ubuntu-latest) — this job never talks to the SUT, only to the
-          checkout, a downloaded artifact, and pip.
+        description: Runner label. Default is GitHub-hosted.
         type: string
         default: ubuntu-latest
       artifact_name:
-        description: >-
-          Name of the build artifact containing this run's manifest.yaml +
-          elastic-pom.yaml (run-observer.yml's `artifact_name` output).
+        description: Crawl artifact name (run-observer.yml's output).
         type: string
         required: true
       baseline_dir:
-        description: >-
-          The target's promoted baseline directory, relative to the
-          checkout. Read-only — this workflow never writes to it.
+        description: Target's promoted baseline dir, relative to checkout.
         type: string
         required: true
       version:
-        description: >-
-          elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.1).
+        description: elastic-automation tag/SHA to pin (e.g. v0.2.1).
         type: string
         required: true
 
