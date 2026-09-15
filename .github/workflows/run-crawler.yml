@@ -2,15 +2,20 @@ name: Run observer crawler
 
 # Reusable workflow: runs elastic-automation's autonomous crawler
 # (observer.crawler) against a target's SUT and produces this run's
-# manifest.yaml + elastic-pom.yaml. Nothing else — no diff, no policy
-# gate, no promotion. Diffing against a baseline and applying CI policy
-# is observer.replay_cli's job, called separately by the caller; baseline
-# promotion is a separate, human/TTL-authorized step.
+# manifest.yaml + elastic-pom.yaml as a plain build artifact. Nothing
+# else — no diff, no policy gate, no checkin.
 #
-# elastic-pom.yaml is durable, committed state (see
-# oguz-labs/elastic-automation/docs/INTERACTIVE_OBSERVER.md §6) — this
-# workflow writes it into bindings_dir inside the checkout, but does NOT
-# commit or push it. That decision belongs to the caller.
+# This workflow has zero knowledge of the target's own directory layout
+# (artifacts_dir/bindings_dir, durable vs ephemeral) or its commit
+# conventions — that's the target's own concern, not the crawler's. It
+# writes both output files to a workflow-local scratch directory and
+# uploads them as one artifact; what the caller does with them —
+# unpacking into bindings_dir, committing, opening a PR — is entirely up
+# to that caller's own job/engineers.
+#
+# Comparing this run's output against a promoted baseline is a separate
+# concern (observer.replay_cli), called by the caller in a later step —
+# no shared workflow for that yet.
 
 on:
   workflow_call:
@@ -40,24 +45,11 @@ on:
         description: Build identity this crawl was taken against (a git SHA or image tag).
         type: string
         default: ${{ github.sha }}
-      artifacts_dir:
-        description: >-
-          Where manifest.yaml lands, relative to the checkout — ephemeral,
-          regenerated every run. Matches the target's own artifacts_dir
-          from its .elastic-automation.yaml.
-        type: string
-        default: reports/artifacts
-      bindings_dir:
-        description: >-
-          Where elastic-pom.yaml lands, relative to the checkout —
-          durable, committed state (never the same directory as
-          artifacts_dir). Matches the target's own bindings_dir.
-        type: string
-        default: tests/bindings
       seed_paths:
         description: >-
-          Path (relative to the checkout) to an existing seed-paths.yaml,
-          if the target has one. Leave empty if it doesn't yet.
+          Path (relative to the checkout) to an existing seed-paths.yaml
+          to read, if the target has one. Leave empty if it doesn't yet.
+          Read-only input — this workflow never writes into the checkout.
         type: string
         default: ""
       engine_ref:
@@ -66,37 +58,30 @@ on:
           never a moving branch (e.g. v0.2.0).
         type: string
         required: true
-      upload_report:
-        description: Upload manifest.yaml + elastic-pom.yaml as a build artifact.
-        type: boolean
-        default: true
+      artifact_name:
+        description: Name of the uploaded build artifact.
+        type: string
+        default: crawler-output
       retention:
         description: Retention period for the artifact, in days.
         type: number
         default: 7
     outputs:
-      manifest_path:
-        description: Path (relative to the checkout) to this run's manifest.yaml.
-        value: ${{ jobs.crawl.outputs.manifest_path }}
-      elastic_pom_path:
-        description: Path (relative to the checkout) to this run's elastic-pom.yaml.
-        value: ${{ jobs.crawl.outputs.elastic_pom_path }}
+      artifact_name:
+        description: Name of the build artifact containing manifest.yaml + elastic-pom.yaml.
+        value: ${{ inputs.artifact_name }}
 
 jobs:
   crawl:
     runs-on: ${{ inputs.runs_on }}
-    outputs:
-      manifest_path: ${{ steps.paths.outputs.manifest_path }}
-      elastic_pom_path: ${{ steps.paths.outputs.elastic_pom_path }}
     env:
       SUT_URL: ${{ inputs.sut_url }}
       MODE: ${{ inputs.mode }}
       MANIFEST_ID: ${{ inputs.manifest_id }}
       BUILD_ID: ${{ inputs.build_id }}
-      ARTIFACTS_DIR: ${{ inputs.artifacts_dir }}
-      BINDINGS_DIR: ${{ inputs.bindings_dir }}
       SEED_PATHS: ${{ inputs.seed_paths }}
       ENGINE_REF: ${{ inputs.engine_ref }}
+      OUT_DIR: _crawl-output
     steps:
       - uses: actions/checkout@v4
 
@@ -105,25 +90,16 @@ jobs:
           python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${ENGINE_REF}#subdirectory=engine"
           python3 -m playwright install chromium
 
-      - name: Compute output paths
-        id: paths
-        run: |
-          safe_id=$(echo "$MANIFEST_ID" | tr ':' '_')
-          echo "manifest_path=${ARTIFACTS_DIR}/${safe_id}.yaml" >> "$GITHUB_OUTPUT"
-          echo "elastic_pom_path=${BINDINGS_DIR}/elastic-pom.yaml" >> "$GITHUB_OUTPUT"
-
       - name: Crawl
-        env:
-          MANIFEST_PATH: ${{ steps.paths.outputs.manifest_path }}
-          POM_PATH: ${{ steps.paths.outputs.elastic_pom_path }}
         run: |
+          mkdir -p "$OUT_DIR"
           args=(
             "$SUT_URL"
             --mode "$MODE"
             --manifest-id "$MANIFEST_ID"
             --build-id "$BUILD_ID"
-            --manifest-out "$MANIFEST_PATH"
-            --pom-out "$POM_PATH"
+            --manifest-out "${OUT_DIR}/manifest.yaml"
+            --pom-out "${OUT_DIR}/elastic-pom.yaml"
           )
           if [ -n "$SEED_PATHS" ]; then
             args+=(--seed-paths "$SEED_PATHS")
@@ -131,11 +107,9 @@ jobs:
           python3 -m observer.crawler "${args[@]}"
 
       - uses: actions/upload-artifact@v4
-        if: always() && inputs.upload_report
+        if: always()
         with:
           retention-days: ${{ inputs.retention }}
-          name: crawler-output
-          path: |
-            ${{ steps.paths.outputs.manifest_path }}
-            ${{ steps.paths.outputs.elastic_pom_path }}
+          name: ${{ inputs.artifact_name }}
+          path: ${{ env.OUT_DIR }}
           if-no-files-found: warn

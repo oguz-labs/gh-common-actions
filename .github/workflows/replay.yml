@@ -1,0 +1,77 @@
+name: Run regression replay
+
+# Reusable workflow: runs elastic-automation's observer.replay_cli against
+# a downloaded crawl artifact (manifest.yaml + elastic-pom.yaml, from
+# run-crawler.yml or any job producing the same two files) and a target's
+# promoted baseline directory. Computes the Process 2 map diff and applies
+# the CI policy from
+# oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md §7.
+#
+# This is comparison only — it never crawls (that's run-crawler.yml) and
+# never checks anything in (baseline_dir is read as-is from the checkout;
+# promoting a new baseline is a separate, human/TTL-authorized step, not
+# this workflow's job).
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        type: string
+        default: ubuntu-latest
+      artifact_name:
+        description: >-
+          Name of the build artifact containing this run's manifest.yaml +
+          elastic-pom.yaml (e.g. run-crawler.yml's `artifact_name` output).
+        type: string
+        required: true
+      manifest_id:
+        description: Manifest id to replay (e.g. ui:<product>:<spec>).
+        type: string
+        required: true
+      baseline_dir:
+        description: >-
+          The target's promoted baseline directory, relative to the
+          checkout. Read-only — this workflow never writes to it.
+        type: string
+        required: true
+      engine_ref:
+        description: >-
+          elastic-automation tag or commit SHA to pin the engine to —
+          never a moving branch (e.g. v0.2.0).
+        type: string
+        required: true
+
+jobs:
+  replay:
+    runs-on: ${{ inputs.runs_on }}
+    env:
+      MANIFEST_ID: ${{ inputs.manifest_id }}
+      BASELINE_DIR: ${{ inputs.baseline_dir }}
+      ENGINE_REF: ${{ inputs.engine_ref }}
+      RUN_DIR: _replay-run
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ env.RUN_DIR }}
+
+      - name: Install engine
+        run: python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${ENGINE_REF}#subdirectory=engine"
+
+      - name: Replay
+        run: |
+          python3 -m observer.replay_cli \
+            --manifest "${RUN_DIR}/manifest.yaml" \
+            --elastic-pom "${RUN_DIR}/elastic-pom.yaml" \
+            --baseline-dir "$BASELINE_DIR" \
+            --manifest-id "$MANIFEST_ID" \
+            --report-out "${RUN_DIR}/report.md"
+
+      - name: Post report to job summary
+        if: always()
+        run: |
+          if [ -f "${RUN_DIR}/report.md" ]; then
+            cat "${RUN_DIR}/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -61,16 +61,17 @@ for the conventions this workflow enforces.
 
 Reusable workflow that runs elastic-automation's autonomous crawler
 (`observer.crawler`) against a target's SUT and produces this run's
-`manifest.yaml` + `elastic-pom.yaml`. Nothing else — no diff against a
-baseline, no CI policy gate, no promotion. It writes `elastic-pom.yaml`
-into `bindings_dir` inside the checkout (durable, committed state per
-`oguz-labs/elastic-automation/docs/INTERACTIVE_OBSERVER.md` §6) but does
-**not** commit or push it — that decision belongs to the caller.
+`manifest.yaml` + `elastic-pom.yaml` as a single build artifact. Nothing
+else — no diff, no policy gate, no checkin.
 
-`artifacts_dir` (ephemeral) and `bindings_dir` (committed) are two
-separate inputs on purpose — collapsing them into one "artifact
-directory" is exactly the bug `Publish Manifest`'s two-argument signature
-exists to prevent (see the engine's own commit history).
+This workflow has **zero knowledge of the target's own repo layout or
+commit conventions**. It never writes into `bindings_dir`/`artifacts_dir`
+inside the checkout, and it never commits or pushes anything — it writes
+both output files to a workflow-local scratch directory and uploads them
+as one artifact (`artifact_name`, default `crawler-output`). What the
+caller does with that artifact — unpacking it into its own `bindings_dir`,
+committing `elastic-pom.yaml`, opening a PR — is entirely the target
+project's own job and its own engineers' call, never this workflow's.
 
 ```yaml
 jobs:
@@ -82,8 +83,42 @@ jobs:
       engine_ref: v0.2.0
 ```
 
-Diffing the crawl's output against a promoted baseline and applying CI
-policy is `observer.replay_cli`'s job (see
-`oguz-labs/elastic-automation/engine/observer/replay_cli.py`) — call it as
-a separate step or job once this one finishes, no shared workflow for that
-yet.
+Comparing the crawl's output against a promoted baseline is a separate
+concern — see `replay.yml` below.
+
+## replay.yml
+
+Reusable workflow that runs elastic-automation's `observer.replay_cli`
+against a downloaded `crawl` artifact (from `run-crawler.yml` or any job
+that produces the same two files) and a target's promoted baseline
+directory, applies the Process 2 CI policy
+(`oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md` §7), and posts
+the Markdown report as the job summary. Nothing else — no crawl, no
+checkin, no promotion.
+
+`baseline_dir` is read from the checkout as-is (it's the target's own
+committed, durable state) — this workflow never writes to it.
+
+```yaml
+jobs:
+  crawl:
+    uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
+    with:
+      sut_url: https://legacy-scout.internal
+      manifest_id: ui:legacy-scout:spec-1
+      engine_ref: v0.2.0
+
+  replay:
+    needs: crawl
+    uses: oguz-labs/gh-common-actions/.github/workflows/replay.yml@main
+    with:
+      artifact_name: ${{ needs.crawl.outputs.artifact_name }}
+      manifest_id: ui:legacy-scout:spec-1
+      baseline_dir: tests/baseline
+      engine_ref: v0.2.0
+```
+
+The job's exit code mirrors `replay_cli`'s policy verdict (0
+pass/warn, 1 require_review, 2 block, 3 no baseline found) — a failing
+`replay` job is the CI gate. Promoting a new baseline is a separate,
+human/TTL-authorized step, not something either workflow does.
