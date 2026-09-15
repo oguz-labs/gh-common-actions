@@ -56,3 +56,34 @@ jobs:
 See `oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md` §7 and
 `oguz-labs/oguz-lab-infra/docs/adr/ADR-009-Allure-Report-Upload-Guide.md`
 for the conventions this workflow enforces.
+
+## run-crawler.yml
+
+Reusable workflow that runs elastic-automation's autonomous crawler
+(`observer.crawler`) against a target's SUT and produces this run's
+`manifest.yaml` + `elastic-pom.yaml`. Nothing else — no diff against a
+baseline, no CI policy gate, no promotion. It writes `elastic-pom.yaml`
+into `bindings_dir` inside the checkout (durable, committed state per
+`oguz-labs/elastic-automation/docs/INTERACTIVE_OBSERVER.md` §6) but does
+**not** commit or push it — that decision belongs to the caller.
+
+`artifacts_dir` (ephemeral) and `bindings_dir` (committed) are two
+separate inputs on purpose — collapsing them into one "artifact
+directory" is exactly the bug `Publish Manifest`'s two-argument signature
+exists to prevent (see the engine's own commit history).
+
+```yaml
+jobs:
+  crawl:
+    uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
+    with:
+      sut_url: https://legacy-scout.internal
+      manifest_id: ui:legacy-scout:spec-1
+      engine_ref: v0.2.0
+```
+
+Diffing the crawl's output against a promoted baseline and applying CI
+policy is `observer.replay_cli`'s job (see
+`oguz-labs/elastic-automation/engine/observer/replay_cli.py`) — call it as
+a separate step or job once this one finishes, no shared workflow for that
+yet.
