@@ -1,13 +1,13 @@
-name: Run regression replay
+name: Replay observer
 
 # Reusable workflow: runs elastic-automation's observer.replay_cli against
 # a downloaded crawl artifact (manifest.yaml + elastic-pom.yaml, from
-# run-crawler.yml or any job producing the same two files) and a target's
+# run-observer.yml or any job producing the same two files) and a target's
 # promoted baseline directory. Computes the Process 2 map diff and applies
 # the CI policy from
 # oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md §7.
 #
-# This is comparison only — it never crawls (that's run-crawler.yml) and
+# This is comparison only — it never crawls (that's run-observer.yml) and
 # never checks anything in (baseline_dir is read as-is from the checkout;
 # promoting a new baseline is a separate, human/TTL-authorized step, not
 # this workflow's job).
@@ -18,7 +18,7 @@ on:
       runs_on:
         description: >-
           Runner label to execute on. Default is GitHub-hosted
-          (ubuntu-latest) — deliberately different from run-crawler.yml's
+          (ubuntu-latest) — deliberately different from run-observer.yml's
           `kubernetes` default: this job never talks to the SUT, only to
           the checkout, a downloaded artifact, and pip — no cluster
           network access needed.
@@ -27,11 +27,43 @@ on:
       artifact_name:
         description: >-
           Name of the build artifact containing this run's manifest.yaml +
-          elastic-pom.yaml (run-crawler.yml's `artifact_name` output —
+          elastic-pom.yaml (run-observer.yml's `artifact_name` output —
           pass the exact same value here; it also doubles as this crawl's
           identity for finding the right subfolder under baseline_dir, so
           there's only ever one name to keep in sync between the two
           workflows, not two).
+        type: string
+        required: true
+      baseline_dir:
+        description: >-
+          The target's promoted baseline directory, relative to the
+          checkout. Read-only — this workflow never writes to it.
+        type: string
+        required: true
+      version:
+        description: >-
+          elastic-automation tag or commit SHA to pin the engine to —
+          never a moving branch (e.g. v0.2.0).
+        type: string
+        required: true
+  workflow_dispatch:
+    # Same inputs as workflow_call — lets a human manually replay an
+    # already-uploaded crawl artifact (e.g. re-checking against a
+    # different baseline_dir) from the Actions UI/CLI without a caller
+    # workflow. The artifact must already exist (from a prior
+    # run-observer.yml run in this repo) — this workflow never crawls.
+    inputs:
+      runs_on:
+        description: >-
+          Runner label to execute on. Default is GitHub-hosted
+          (ubuntu-latest) — this job never talks to the SUT, only to the
+          checkout, a downloaded artifact, and pip.
+        type: string
+        default: ubuntu-latest
+      artifact_name:
+        description: >-
+          Name of the build artifact containing this run's manifest.yaml +
+          elastic-pom.yaml (run-observer.yml's `artifact_name` output).
         type: string
         required: true
       baseline_dir:

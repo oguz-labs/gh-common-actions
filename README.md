@@ -75,13 +75,13 @@ call, never this workflow's.
 
 `artifact_name` (default `crawler-output`) doubles as this crawl's
 identity internally — there's no separate `manifest_id` input to also
-invent and keep in sync; pass the same `artifact_name` to `replay.yml`
+invent and keep in sync; pass the same `artifact_name` to `replay-observer.yml`
 and it finds the matching baseline on its own.
 
 ```yaml
 jobs:
   crawl:
-    uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
+    uses: oguz-labs/gh-common-actions/.github/workflows/run-observer.yml@main
     with:
       sut_url: https://legacy-scout.internal
       artifact_name: legacy-scout-spec-1
@@ -89,12 +89,12 @@ jobs:
 ```
 
 Comparing the crawl's output against a promoted baseline is a separate
-concern — see `replay.yml` below.
+concern — see `replay-observer.yml` below.
 
 ## replay.yml
 
 Reusable workflow that runs elastic-automation's `observer.replay_cli`
-against a downloaded `crawl` artifact (from `run-crawler.yml` or any job
+against a downloaded `crawl` artifact (from `run-observer.yml` or any job
 that produces the same two files) and a target's promoted baseline
 directory, applies the Process 2 CI policy
 (`oguz-labs/elastic-automation/docs/REGRESSION_REPLAY.md` §7), and posts
@@ -107,7 +107,7 @@ committed, durable state) — this workflow never writes to it.
 ```yaml
 jobs:
   crawl:
-    uses: oguz-labs/gh-common-actions/.github/workflows/run-crawler.yml@main
+    uses: oguz-labs/gh-common-actions/.github/workflows/run-observer.yml@main
     with:
       sut_url: https://legacy-scout.internal
       artifact_name: legacy-scout-spec-1
@@ -115,7 +115,7 @@ jobs:
 
   replay:
     needs: crawl
-    uses: oguz-labs/gh-common-actions/.github/workflows/replay.yml@main
+    uses: oguz-labs/gh-common-actions/.github/workflows/replay-observer.yml@main
     with:
       artifact_name: ${{ needs.crawl.outputs.artifact_name }}
       baseline_dir: tests/baseline

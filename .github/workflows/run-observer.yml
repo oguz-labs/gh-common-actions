@@ -1,4 +1,4 @@
-name: Run observer crawler
+name: Run observer
 
 # Reusable workflow: runs elastic-automation's autonomous crawler
 # (observer.crawler) against a target's SUT and produces this run's
@@ -71,6 +71,60 @@ on:
       artifact_name:
         description: Name of the build artifact containing manifest.yaml + elastic-pom.yaml.
         value: ${{ inputs.artifact_name }}
+  workflow_dispatch:
+    # Same inputs as workflow_call, minus the outputs block (workflow_dispatch
+    # doesn't support one) — lets a human trigger a one-off crawl manually
+    # from the Actions UI/CLI without needing a caller workflow.
+    # `retention` is `type: string` here, not `number` — workflow_dispatch
+    # doesn't support that type.
+    inputs:
+      runs_on:
+        description: >-
+          Runner label to execute on. Default is the org's single
+          self-hosted pool (label `kubernetes`, ARC-managed) — the SUT is
+          typically only reachable from inside the cluster network.
+        type: string
+        default: kubernetes
+      sut_url:
+        description: Base URL of the system under test to crawl.
+        type: string
+        required: true
+      mode:
+        description: >-
+          'ci' (autonomous, never blocks — unreachable walls are marked,
+          not fatal) or 'interactive' (currently behaves like 'ci' from
+          this CLI — there's no wall_resolver wiring yet).
+        type: string
+        default: ci
+      build_id:
+        description: Build identity this crawl was taken against (a git SHA or image tag).
+        type: string
+        default: ${{ github.sha }}
+      seed_paths:
+        description: >-
+          Path (relative to the checkout) to an existing seed-paths.yaml
+          to read, if the target has one. Leave empty if it doesn't yet.
+          Read-only input — this workflow never writes into the checkout.
+        type: string
+        default: ""
+      version:
+        description: >-
+          elastic-automation tag or commit SHA to pin the engine to —
+          never a moving branch (e.g. v0.2.0).
+        type: string
+        required: true
+      artifact_name:
+        description: >-
+          Name of the uploaded build artifact — also doubles as this
+          crawl's identity (passed as --manifest-id to observer.crawler),
+          so pass the same value to replay-observer.yml rather than
+          inventing a second name for the same thing.
+        type: string
+        default: crawler-output
+      retention:
+        description: Retention period for the artifact, in days.
+        type: string
+        default: "7"
 
 jobs:
   crawl:
