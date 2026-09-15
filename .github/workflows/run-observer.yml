@@ -52,7 +52,7 @@ on:
       version:
         description: >-
           elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.0).
+          never a moving branch (e.g. v0.2.1).
         type: string
         required: true
       artifact_name:
@@ -110,7 +110,7 @@ on:
       version:
         description: >-
           elastic-automation tag or commit SHA to pin the engine to —
-          never a moving branch (e.g. v0.2.0).
+          never a moving branch (e.g. v0.2.1).
         type: string
         required: true
       artifact_name:
