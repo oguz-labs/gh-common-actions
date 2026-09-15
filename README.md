@@ -80,7 +80,7 @@ jobs:
     with:
       sut_url: https://legacy-scout.internal
       manifest_id: ui:legacy-scout:spec-1
-      engine_ref: v0.2.0
+      version: v0.2.0
 ```
 
 Comparing the crawl's output against a promoted baseline is a separate
@@ -106,7 +106,7 @@ jobs:
     with:
       sut_url: https://legacy-scout.internal
       manifest_id: ui:legacy-scout:spec-1
-      engine_ref: v0.2.0
+      version: v0.2.0
 
   replay:
     needs: crawl
@@ -115,7 +115,7 @@ jobs:
       artifact_name: ${{ needs.crawl.outputs.artifact_name }}
       manifest_id: ui:legacy-scout:spec-1
       baseline_dir: tests/baseline
-      engine_ref: v0.2.0
+      version: v0.2.0
 ```
 
 The job's exit code mirrors `replay_cli`'s policy verdict (0

@@ -22,10 +22,11 @@ on:
     inputs:
       runs_on:
         description: >-
-          Runner label to execute on. Default self-hosted since the SUT is
-          typically only reachable from inside the org network/cluster.
+          Runner label to execute on. Default is the org's single
+          self-hosted pool (label `kubernetes`, ARC-managed) — the SUT is
+          typically only reachable from inside the cluster network.
         type: string
-        default: self-hosted
+        default: kubernetes
       sut_url:
         description: Base URL of the system under test to crawl.
         type: string
@@ -52,7 +53,7 @@ on:
           Read-only input — this workflow never writes into the checkout.
         type: string
         default: ""
-      engine_ref:
+      version:
         description: >-
           elastic-automation tag or commit SHA to pin the engine to —
           never a moving branch (e.g. v0.2.0).
@@ -80,14 +81,18 @@ jobs:
       MANIFEST_ID: ${{ inputs.manifest_id }}
       BUILD_ID: ${{ inputs.build_id }}
       SEED_PATHS: ${{ inputs.seed_paths }}
-      ENGINE_REF: ${{ inputs.engine_ref }}
+      VERSION: ${{ inputs.version }}
       OUT_DIR: _crawl-output
     steps:
       - uses: actions/checkout@v4
 
       - name: Install engine and browser binary
+        # The org's runner image (oguz-labs/gh-runners) is being updated to
+        # pre-bake Chromium so this doesn't re-download ~150MB every run —
+        # `playwright install` is then a no-op on a matching version and
+        # stays here only as a safety net against image/pin drift.
         run: |
-          python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${ENGINE_REF}#subdirectory=engine"
+          python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${VERSION}#subdirectory=engine"
           python3 -m playwright install chromium
 
       - name: Crawl

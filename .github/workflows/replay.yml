@@ -16,6 +16,12 @@ on:
   workflow_call:
     inputs:
       runs_on:
+        description: >-
+          Runner label to execute on. Default is GitHub-hosted
+          (ubuntu-latest) — deliberately different from run-crawler.yml's
+          `kubernetes` default: this job never talks to the SUT, only to
+          the checkout, a downloaded artifact, and pip — no cluster
+          network access needed.
         type: string
         default: ubuntu-latest
       artifact_name:
@@ -34,7 +40,7 @@ on:
           checkout. Read-only — this workflow never writes to it.
         type: string
         required: true
-      engine_ref:
+      version:
         description: >-
           elastic-automation tag or commit SHA to pin the engine to —
           never a moving branch (e.g. v0.2.0).
@@ -47,7 +53,7 @@ jobs:
     env:
       MANIFEST_ID: ${{ inputs.manifest_id }}
       BASELINE_DIR: ${{ inputs.baseline_dir }}
-      ENGINE_REF: ${{ inputs.engine_ref }}
+      VERSION: ${{ inputs.version }}
       RUN_DIR: _replay-run
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +64,7 @@ jobs:
           path: ${{ env.RUN_DIR }}
 
       - name: Install engine
-        run: python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${ENGINE_REF}#subdirectory=engine"
+        run: python3 -m pip install "git+https://github.com/oguz-labs/elastic-automation.git@${VERSION}#subdirectory=engine"
 
       - name: Replay
         run: |
